@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase_version9_RealtimeDB(G'sACADEMY初学者用サンプル)</title>
+    <link rel="stylesheet" href="css/reset.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+    <div id="logoutContainer" style="position: fixed; top: 10px; right: 10px;">
+        <button id="logoutButton">
+            ログアウト
+        </button>
+    </div>
+
+    <h1>チャットアプリ</h1>
+    
+    <!-- Chatroomリスト表示エリア -->
+    <div id="chatRoomList">
+        <h3>ルーム一覧</h3>
+        <ul id="roomList" style="list-style: none; padding: 0;"></ul>
+        <button id="createRoom" style="width: 100%; margin-top: 10px;">新しいルームを作成</button>
+    </div>
+
+    <!-- メインチャットエリア -->
+    <div style="margin-left: 20%; padding: 10px;">
+        <p id="loggedInUser" style="font-weight: bold; font-size: 16px;">ログインユーザー: なし</p> <!-- ログインユーザー名を表示 -->
+        <h2 id="currentRoomName">選択されたルーム: なし</h2>
+        <div id="output"></div>
+    </div>
+    
+    <!-- テキスト入力欄 -->
+    <textarea id="text" placeholder="文章を入力してください"></textarea>
+    <button id="send" disabled>送信</button>
+
+    <!-- ログインモーダルはそのまま -->
+    <div id="loginModal"
+        style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center;">
+        <div style="background: white; padding: 20px; border-radius: 8px; width: 300px; text-align: center;">
+            <h2 id="modalTitle">ログイン</h2>
+            <input type="email" id="email" placeholder="メールアドレス" style="width: 100%; margin-bottom: 10px;">
+            <input type="password" id="password" placeholder="パスワード" style="width: 100%; margin-bottom: 10px;">
+            <input type="text" id="nickname" placeholder="ニックネーム"
+                style="width: 100%; margin-bottom: 10px; display: none;">
+            <button id="login">ログイン</button>
+            <button id="signup" style="display: none;">新規登録</button>
+            <p id="toggleText" style="margin-top: 10px; cursor: pointer;">新規登録はこちら</p>
+        </div>
+    </div>
+
+
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.1.0/firebase-app.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.1.0/firebase-auth.js";
+        import { getDatabase, ref, push, set, onChildAdded, get, child } from "https://www.gstatic.com/firebasejs/9.1.0/firebase-database.js";
+
+        // Firebase設定
+        const firebaseConfig = {
+
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth();
+        const db = getDatabase(app);
+        const usersRef = ref(db, "users"); // ユーザー情報を保存
+        const chatRef = ref(db, "chat");   // チャットメッセージを保存
+
+        let currentUserNickname = "";
+
+        // 新規登録とログインの切り替え
+        $("#toggleText").on("click", function () {
+            if ($("#login").is(":visible")) {
+                $("#modalTitle").text("新規登録");
+                $("#login").hide();
+                $("#signup").show();
+                $("#nickname").show();
+                $("#toggleText").text("ログインはこちら");
+            } else {
+                $("#modalTitle").text("ログイン");
+                $("#login").show();
+                $("#signup").hide();
+                $("#nickname").hide();
+                $("#toggleText").text("新規登録はこちら");
+            }
+        });
+
+        // 新規登録処理
+        $("#signup").on("click", function () {
+            const email = $("#email").val();
+            const password = $("#password").val();
+            const nickname = $("#nickname").val();
+
+            createUserWithEmailAndPassword(auth, email, password)
+                .then((userCredential) => {
+                    const user = userCredential.user;
+                    // ニックネームをデータベースに保存
+                    set(ref(db, `users/${user.uid}`), { nickname });
+                    alert("新規登録成功！ログインしました！");
+                    $("#loginModal").hide();
+                    $("#send").prop("disabled", false);
+                    currentUserNickname = nickname;
+                })
+                .catch((error) => {
+                    alert("エラー: " + error.message);
+                });
+        });
+
+ // ログイン処理
+    $("#login").on("click", function () {
+        const email = $("#email").val();
+        const password = $("#password").val();
+
+        signInWithEmailAndPassword(auth, email, password)
+            .then((userCredential) => {
+                const user = userCredential.user;
+                // ログインしたユーザーのニックネームを取得
+                get(child(usersRef, user.uid)).then((snapshot) => {
+                    if (snapshot.exists()) {
+                        currentUserNickname = snapshot.val().nickname;
+                        $("#loggedInUser").text(`ログインユーザー: ${currentUserNickname}`); // ユーザー名を表示
+                        alert("ログイン成功！");
+                        $("#loginModal").hide();
+                        $("#send").prop("disabled", false);
+                    } else {
+                        alert("ユーザーデータが見つかりません。");
+                    }
+                });
+            })
+            .catch((error) => {
+                alert("エラー: " + error.message);
+            });
+    });
+
+    // 認証状態を監視
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            get(child(usersRef, user.uid)).then((snapshot) => {
+                if (snapshot.exists()) {
+                    currentUserNickname = snapshot.val().nickname;
+                    $("#loggedInUser").text(`ログインユーザー: ${currentUserNickname}`); // ユーザー名を表示
+                    $("#loginModal").hide();
+                    $("#send").prop("disabled", false);
+                    loadChatRooms(); // ログイン時にチャットルームをロード
+                }
+            });
+        } else {
+            $("#loggedInUser").text("ログインユーザー: なし"); // ログアウト時にリセット
+            $("#loginModal").show();
+            $("#send").prop("disabled", true);
+        }
+    });
+
+
+
+        $("#send").on("click", function () {
+            if (!currentRoomId) {
+                alert("チャットルームを選択してください！");
+                return;
+            }
+
+            const user = auth.currentUser; // 現在のログインユーザー
+            const now = new Date().toISOString(); // 現在の日時をISOフォーマットで取得
+
+            const msg = {
+                uid: user.uid, // ユーザーIDを含める
+                uname: currentUserNickname,
+                text: $("#text").val(),
+                timestamp: now // 投稿日時を追加
+            };
+
+            const messagesRef = ref(db, `chatRooms/${currentRoomId}/messages`);
+            const newMessageRef = push(messagesRef);
+            set(newMessageRef, msg);
+
+            $("#text").val(""); // 入力欄をクリア
+        });
+
+        onChildAdded(chatRef, function (data) {
+            const msg = data.val();
+
+            const messageElement = `
+        <div class="message-card">
+            <p class="message-user"><strong>${msg.uname}</strong></p>
+            <p class="message-text">${msg.text}</p>
+        </div>
+    `;
+
+            $("#output").append(messageElement);
+
+            const output = document.getElementById("output");
+            output.scrollTop = output.scrollHeight;
+        });
+        const chatRoomsRef = ref(db, "chatRooms"); // ルーム一覧を保存
+
+        // チャットルーム一覧をロード
+        function loadChatRooms() {
+            const roomList = $("#roomList");
+            roomList.empty();
+
+            get(chatRoomsRef).then((snapshot) => {
+                const rooms = snapshot.val();
+                if (rooms) {
+                    for (const roomId in rooms) {
+                        const roomName = rooms[roomId].name || `ルーム ${roomId}`;
+                        const roomItem = $(`<li style="cursor: pointer; padding: 5px;">${roomName}</li>`);
+                        roomItem.on("click", () => selectChatRoom(roomId, roomName));
+                        roomList.append(roomItem);
+                    }
+                } else {
+                    roomList.append("<li>ルームがありません。</li>");
+                }
+            }).catch((error) => {
+                console.error("ルームリストの読み込みエラー: ", error);
+            });
+        }
+
+        let currentRoomId = null; // 現在選択中のルームID
+
+        function selectChatRoom(roomId, roomName) {
+            const roomRef = ref(db, `chatRooms/${roomId}`);
+            get(roomRef).then(async (snapshot) => {
+                if (snapshot.exists()) {
+                    const roomData = snapshot.val();
+                    const inputPassword = prompt(`「${roomName}」のパスワードを入力してください:`);
+                    const hashedInputPassword = await hashPassword(inputPassword);
+
+                    if (hashedInputPassword === roomData.password) {
+                        currentRoomId = roomId;
+                        $("#currentRoomName").text(`選択されたルーム: ${roomName}`);
+                        $("#send").prop("disabled", false); // 送信ボタンを有効化
+                        loadMessages(roomId); // メッセージを読み込む
+                    } else {
+                        alert("パスワードが間違っています！");
+                    }
+                } else {
+                    alert("ルームが見つかりません！");
+                }
+            }).catch((error) => {
+                console.error("ルームデータの取得エラー: ", error);
+            });
+        }
+
+
+    function loadMessages(roomId) {
+        const roomMessagesRef = ref(db, `chatRooms/${roomId}/messages`);
+        $("#output").empty();
+
+        onChildAdded(roomMessagesRef, function (data) {
+            const msg = data.val();
+            const currentUser = auth.currentUser;
+
+            const isMyMessage = currentUser && msg.uid === currentUser.uid;
+
+            // メッセージのタイムスタンプをフォーマット
+            const timestamp = new Date(msg.timestamp).toLocaleString();
+
+            const messageElement = `
+        <div class="${isMyMessage ? 'my-message' : 'other-message'}" data-timestamp="${timestamp}">
+            <div class="message-card" data-timestamp="${timestamp}">
+                <p class="message-user"><strong>${msg.uname}</strong></p>
+                <p class="message-text">${msg.text}</p>
+            </div>
+        </div>
+        `;
+
+            $("#output").append(messageElement);
+
+            const output = document.getElementById("output");
+            output.scrollTop = output.scrollHeight;
+        });
+    }
+
+
+
+        $("#createRoom").on("click", async () => {
+            const roomName = prompt("新しいルームの名前を入力してください:");
+            const roomPassword = prompt("ルームのパスワードを入力してください:");
+
+            if (roomName && roomPassword) {
+                const hashedPassword = await hashPassword(roomPassword); // パスワードをハッシュ化
+                const newRoomRef = push(ref(db, "chatRooms")); // 新しいルームを作成
+                set(newRoomRef, {
+                    name: roomName,
+                    password: hashedPassword,
+                    messages: {}
+                });
+                loadChatRooms(); // ルームリストを更新
+            }
+        });
+
+        // パスワードのハッシュ化（SHA-256を使用）
+        async function hashPassword(password) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(password);
+            const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+            return Array.from(new Uint8Array(hashBuffer))
+                .map((b) => b.toString(16).padStart(2, "0"))
+                .join("");
+        }
+
+
+        // 初回ロードでルームを表示
+        loadChatRooms();
+
+        import { signOut } from "https://www.gstatic.com/firebasejs/9.1.0/firebase-auth.js";
+
+            // ログアウトボタンのクリックイベント
+            $("#logoutButton").on("click", function () {
+                signOut(auth)
+                    .then(() => {
+                        alert("ログアウトしました。");
+                        // ログアウト後は再度ログイン画面を表示
+                        $("#loginModal").show();
+                        $("#send").prop("disabled", true);
+                        currentUserNickname = ""; // ニックネームをリセット
+                    })
+                    .catch((error) => {
+                        alert("ログアウトエラー: " + error.message);
+                    });
+            });
+
+
+    </script>
+</body>
+
+
+
+</html>
